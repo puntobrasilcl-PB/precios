@@ -1,0 +1,17 @@
+{
+  "name": "Punto Brasil · Precios y stock",
+  "short_name": "Punto Brasil",
+  "description": "Precios, códigos, stock y ventas de Punto Brasil",
+  "start_url": "./#productos",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F4F4",
+  "theme_color": "#2B2C2D",
+  "lang": "es-CL",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
