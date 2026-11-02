@@ -202,3 +202,32 @@ body.auth header.top nav, body.auth .bottom-nav { display: none; }
 
 .fdet > summary { cursor: pointer; color: var(--muted); padding: 2px 0; }
 .fdet[open] > summary { margin-bottom: 8px; }
+
+/* ---- v4: fórmula editable ---- */
+.fx h3 { margin: 14px 0 6px; }
+.fx-top { align-items: start; gap: 18px; }
+.fx-help { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.fx-help ul { margin: 4px 0 10px; padding-left: 18px; display: grid; gap: 4px; }
+.fx-help code, .fx code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.fx-names { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip.fxname { font-family: ui-monospace, Menlo, Consolas, monospace; cursor: pointer; color: var(--ink); }
+.chip.fxname:hover { border-color: var(--oro); color: var(--oro); }
+.fx-vals td:first-child { width: 1%; white-space: nowrap; }
+.fx-vals td:nth-child(3) { width: 130px; }
+.fx-steps td { vertical-align: top; }
+.fx-steps td:nth-child(2) { min-width: 230px; }
+.fx-steps td:nth-child(2) input { min-width: 220px; }
+.fx-steps td:nth-child(3) { min-width: 150px; }
+.fx-steps td:nth-child(3) input { min-width: 140px; }
+.fx-steps .fx-eq { color: var(--muted); padding-top: 10px; }
+.fx-steps .fx-expr-td { min-width: 340px; width: 38%; }
+.fx-steps input.fx-expr, .fx-steps input.fxkey, .fx-vals input.fxkey { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+.fx-steps select { border: 1px solid var(--line); border-radius: 6px; padding: 5px 4px; background: var(--surface); font-size: 13px; }
+.fx-steps .fx-val { padding-top: 10px; font-variant-numeric: tabular-nums; min-width: 90px; }
+.fx-steps .fx-btns { white-space: nowrap; }
+.fx-steps .fx-btns .btn { padding: 4px 8px; }
+.fx-err { color: var(--warn); min-height: 0; }
+.fx-err:empty { display: none; }
+tr.fx-bad input.fx-expr { border-color: var(--warn); background: var(--oro-soft); }
+.fx-steps tr.tot td { font-weight: 600; }
+@media (max-width: 640px) { .fx-steps .fx-expr-td { min-width: 220px; } }

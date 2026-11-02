@@ -23,7 +23,7 @@ const S = {
   pf: { q: "", linea: "", tipo: "", prov: "", stock: "", estado: "", orden: "nombre", limit: 120 },
   vf: { mes: today().slice(0, 7) },
   calc: { linea: "oro_br", perfil: "", peso: "2,5", bruto: "6", tc: "" },
-  draft: null, draftCounters: null, dirtyP: new Set(), dirtyC: new Set(), timers: {}, pendingRender: false, shopStatus: null
+  fx: { linea: "oro_br", peso: "1,55", bruto: "9,57", perfil: "", focus: null }, draft: null, draftCounters: null, dirtyP: new Set(), dirtyC: new Set(), timers: {}, pendingRender: false, shopStatus: null
 };
 
 /* ---------- utilidades de interfaz ---------- */
@@ -439,12 +439,13 @@ function paramsEditor(c) {
       <label class="f">Gastos de viaje % (sobre costo)<input type="number" step="0.5" data-cp="viaje" value="${esc(p.viaje)}"></label>
       <label class="f">Redcompra / Mercado Pago %<input type="number" step="0.1" data-cp="pasarela" value="${esc(p.pasarela)}"></label>
       <label class="f">Comisión Shopify %<input type="number" step="0.1" data-cp="shopify" value="${esc(p.shopify)}"></label>
+      ${((p.formula && p.formula.vars) || []).map((v, i) => `<label class="f">${esc(v.nombre || v.key)} <span class="small muted">(${esc(v.key)})</span><input type="number" step="any" data-cp="formula.vars.${i}.valor" value="${esc(v.valor)}"></label>`).join("")}
       <label class="f">Redondeo<select data-cp="rounding">${[["990", "Subir a $X.990"], ["1000", "Subir a miles"], ["100", "Subir a centenas"], ["none", "Sin redondeo"]].map(([v, t]) => `<option value="${v}" ${p.rounding === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="f">Proveedor<input data-cf="proveedor" value="${esc(c.proveedor)}" list="provList"></label>
       <label class="f">Fecha de compra<input type="date" data-cf="fecha" value="${esc(c.fecha)}"></label>
       <label class="f">N° de documento<input data-cf="documento" value="${esc(c.documento)}"></label>
     </div><datalist id="provList">${S.cfg.providers.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
-    <div class="row"><button class="btn" data-act="reloadParams">Usar los valores de Ajustes</button><span class="small muted">Cada compra guarda sus propios parámetros.</span></div></div></details>`;
+    <div class="row"><button class="btn" data-act="reloadParams">Usar los valores de Ajustes</button><span class="small muted">Cada compra guarda sus propios parámetros y su fórmula (${((p.formula && p.formula.steps) || PB.formulaOf(p).steps).length} pasos). La fórmula se edita en Ajustes.</span></div></div></details>`;
 }
 function itemCard(c, p, prev) {
   const params = c.params; const L = lineCfg(c.linea); const r = calcP(p); const open = S.open["it_" + p.id];
@@ -469,16 +470,8 @@ function priceBox(r) {
   return `<span class="price">${clp(r.final)}</span><span class="sub">${r.manual ? "precio manual · sugerido " + clp(r.sugerido) : "precio de venta"}</span>${r.mayorista ? `<span class="sub">Mayorista ${clp(r.mayorista)}</span>` : ""}<span class="sub">Costo ${clp(r.costo)}</span>`;
 }
 function itemDetail(c, p, r) {
-  const params = c.params; const rows = [];
-  if (r.ok) {
-    if (params.costo === "banho") { rows.push(["Valor del baño por kg", "R$ " + r.valorKg.toLocaleString("es-CL", { maximumFractionDigits: 2 })]); rows.push([`Baño de la pieza (${esc(p.peso)} g)`, brl(r.banoBRL)]); rows.push(["Bruto", brl(N(p.bruto))]); rows.push(["Valor pieza en Brasil", brl(r.piezaBRL)]); }
-    else if (params.costo === "brl") rows.push(["Precio en Brasil", brl(r.piezaBRL)]);
-    rows.push(["Costo en pesos" + (params.costo !== "clp" ? ` (× ${params.tc})` : ""), clp(r.costoBase)]); if (r.aduana) rows.push([`Aduana ${params.aduana}%`, clp(r.aduana)]);
-    rows.push(["<b>Costo pieza</b>", "<b>" + clp(r.costo) + "</b>"]); if (r.mayorista) rows.push([`Margen 1 (${params.margenes[0]}%) → mayorista con IVA`, clp(r.mayorista)]);
-    rows.push([`Margen ${params.margenes.length > 1 ? "2 (" + params.margenes[1] : "(" + params.margenes[0]}%) → minorista con IVA`, clp(r.minorista)]);
-    rows.push([`Gastos de viaje ${params.viaje}%`, clp(r.viaje)], [`Redcompra / MP ${params.pasarela}%`, clp(r.pasarela)], [`Shopify ${params.shopify}%`, clp(r.shopify)], ["Precio calculado", clp(r.bruto)]);
-  }
-  return `${r.ok ? `<table class="bd">${rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`).join("")}<tr class="tot"><td>Precio sugerido (redondeado)</td><td class="n">${clp(r.sugerido)}</td></tr><tr><td>Utilidad aprox. por unidad (sin IVA, después de viaje y comisiones)</td><td class="n">${clp(r.utilidad)} · ${r.margenReal !== null ? Math.round(r.margenReal * 100) + "%" : ""}</td></tr></table>` : ""}
+  const params = c.params; const rows = (r.steps || []).map((st) => [esc(st.nombre) + ` <span class="small muted">= ${esc(st.expr)}</span>`, st.err ? `<span class="warn-t">${esc(st.err)}</span>` : (st.key === "costo" ? "<b>" + fxFmt(st.val, st.fmt) + "</b>" : fxFmt(st.val, st.fmt))]);
+  return `${rows.length ? `<table class="bd">${rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`).join("")}${r.ok ? `<tr class="tot"><td>Precio sugerido (redondeado)</td><td class="n">${clp(r.sugerido)}</td></tr><tr><td>Utilidad aprox. por unidad (sin IVA, después de viaje y comisiones)</td><td class="n">${clp(r.utilidad)} · ${r.margenReal !== null ? Math.round(r.margenReal * 100) + "%" : ""}</td></tr>` : ""}</table>` : ""}
     <div class="grid g3"><label class="f">Precio manual (vacío = sugerido)<input inputmode="numeric" data-if="precio_manual" value="${esc(p.precio_manual)}"></label>
       <label class="f">Referencia proveedor<input data-if="ref" value="${esc(p.ref)}"></label><label class="f">Talla / color / variante<input data-if="variante" value="${esc(p.variante)}"></label></div>
     ${p.desc_original ? `<div class="small muted">Descripción original: ${esc(p.desc_original)}</div>` : ""}
@@ -583,8 +576,7 @@ function viewAjustes() {
     <label class="f">Redondeo por defecto<select data-set="rounding">${[["990", "Subir a $X.990"], ["1000", "Subir a miles"], ["100", "Subir a centenas"], ["none", "Sin redondeo"]].map(([v, t]) => `<option value="${v}" ${d.rounding === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
     <label class="f">Stock mínimo por defecto${inp("stockMin", "number", "1")}</label><label class="f">Enlace del QR ({CODIGO} se reemplaza)${inp("qrUrl")}</label>
     <label class="f">Canales de venta (separados por coma)<input data-set="canalesText" value="${esc((d.canales || []).join(", "))}"></label></div></section>
-  <section class="panel"><h2>Márgenes y costos por línea</h2><p class="note">Precio = costo ÷ (1 − margen 1) → mayorista; ÷ (1 − margen 2) × IVA → minorista; + viaje (sobre el costo) + Redcompra y Shopify (sobre el minorista); se redondea.</p>
-    <div class="scroll-x"><table class="ptable"><thead><tr><th>Línea</th><th>N° márgenes</th><th>Margen 1 %</th><th>Margen 2 %</th><th>Aduana %</th><th>Viaje %</th><th>Redcompra/MP %</th><th>Shopify %</th><th>Material</th></tr></thead><tbody>${lines}</tbody></table></div></section>
+  ${fxSection(d)}
   <section class="panel"><h2>Perfiles de baño (tabla del proveedor)</h2><p class="note">Valor por kg = camada × cotización + M.O. × MO fija + verniz. Actualiza la cotización cuando llegue una tabla nueva.</p>
     <div class="scroll-x"><table class="ptable"><thead><tr><th>Nombre</th><th>Camada</th><th>Cotización/día</th><th>M.O.</th><th>MO fija</th><th>Verniz</th><th class="n">Valor/kg</th><th class="n">Valor/g</th></tr></thead><tbody>${profs}</tbody></table></div></section>
   <section class="panel"><h2>Codificación</h2><div class="grid g3"><label class="f">Formato ({TIPO}, {MAT}, {NUM})${inp("codeFormat")}</label><label class="f">Dígitos del correlativo${inp("numDigits", "number", "1")}</label><div class="note">Ejemplo: <b>${esc(PB.makeCode(d, "AR", "ENO", 87))}</b></div></div>
@@ -599,11 +591,108 @@ function viewAjustes() {
   <section class="panel grid"><h2>Cuenta</h2><p class="small">Sesión iniciada como <b>${esc(S.user && S.user.email)}</b>.</p><div class="row"><button class="btn" data-act="logout">Cerrar sesión</button></div>
     <p class="small muted">Para instalarla en el celular: en Chrome (Android) toca ⋮ → <b>Instalar aplicación</b>; en iPhone/iPad abre en Safari → Compartir → <b>Agregar a inicio</b>.</p></section></div>`;
 }
+
+/* ---------- Fórmula editable (Ajustes) ---------- */
+const FX_FMT = [["clp", "$ pesos"], ["brl", "R$ reales"], ["num", "número"], ["pct", "%"]];
+function fxFmt(v, fmt) {
+  if (v === null || v === undefined || !isFinite(v)) return "—";
+  if (fmt === "brl") return brl(v); if (fmt === "clp") return clp(v);
+  if (fmt === "pct") return v.toLocaleString("es-CL", { maximumFractionDigits: 2 }) + "%";
+  return v.toLocaleString("es-CL", { maximumFractionDigits: 4 });
+}
+function fxEnsure(d, k) { const L = d.lines[k]; if (!L.formula || !Array.isArray(L.formula.steps) || !L.formula.steps.length) L.formula = PB.defaultFormula(L.costo, L.margenes.length); if (!Array.isArray(L.formula.vars)) L.formula.vars = []; return L.formula; }
+function fxProfileIdx(d, L) { const key = (L.perfiles || []).includes(S.fx.perfil) ? S.fx.perfil : (L.perfiles || [])[0]; return d.profiles.findIndex((p) => p.key === key); }
+function fxPreview() {
+  const d = S.draft; const k = S.fx.linea; const L = d.lines[k];
+  const p = PB.paramsFor(d, k); const pi = fxProfileIdx(d, L);
+  return PB.calc({ peso: S.fx.peso, bruto: S.fx.bruto, perfil: pi >= 0 ? d.profiles[pi].key : null }, p);
+}
+function fxSection(d) {
+  const k = d.lines[S.fx.linea] ? S.fx.linea : (S.fx.linea = d.lineOrder[0]); const L = d.lines[k]; const F = fxEnsure(d, k); const base = `lines.${k}`;
+  const banho = L.costo === "banho"; const pi = banho ? fxProfileIdx(d, L) : -1; const r = fxPreview();
+  const inp = (path, type = "number", step = "any", extra = "") => `<input ${type === "number" ? `type="number" step="${step}"` : ""} data-set="${path}" value="${esc(getPath(d, path))}" ${extra}>`;
+  const chip = (key) => `<button class="chip fxname" data-act="fxIns" data-name="${esc(key)}" title="Insertar en la fórmula">${esc(key)}</button>`;
+  const bi = PB.FX_BUILTINS.filter((b) => (!b.solo || b.solo === L.costo) && b.nosolo !== L.costo && (b.key !== "margen2" || L.margenes.length > 1));
+  const rowsProd = bi.filter((b) => b.grupo === "producto").map((b) => `<tr><td>${chip(b.key)}</td><td>${esc(b.key === "bruto" && L.costo === "clp" ? "Costo de compra en CLP" : b.key === "bruto" && L.costo === "brl" ? "Precio en R$" : b.nombre)}</td><td><input inputmode="decimal" data-fx="${b.key}" value="${esc(S.fx[b.key])}"></td><td class="small muted">Dato de cada producto · aquí solo para probar</td></tr>`).join("");
+  const rowsPerfil = banho && pi >= 0 ? bi.filter((b) => b.grupo === "perfil").map((b) => `<tr><td>${chip(b.key)}</td><td>${esc(b.nombre)}</td><td>${inp(`profiles.${pi}.${b.campo}`)}</td><td class="small muted">Perfil de baño «${esc(d.profiles[pi].nombre)}»</td></tr>`).join("") : "";
+  const rowsLinea = bi.filter((b) => b.grupo === "general" || b.grupo === "linea").map((b) => `<tr><td>${chip(b.key)}</td><td>${esc(b.nombre)}</td><td>${inp(b.grupo === "general" ? b.campo : `${base}.${b.campo}`, "number", "0.1")}</td><td class="small muted">${b.grupo === "general" ? "General (todas las líneas)" : "Solo " + esc(L.corto)}</td></tr>`).join("");
+  const rowsVars = F.vars.map((v, i) => `<tr><td><input class="fxkey" data-set="${base}.formula.vars.${i}.key" value="${esc(v.key)}" placeholder="nombre_corto"></td><td><input data-set="${base}.formula.vars.${i}.nombre" value="${esc(v.nombre)}" placeholder="Para qué es"></td><td>${inp(`${base}.formula.vars.${i}.valor`)}</td><td><button class="btn ghost danger small" data-act="fxDelVar" data-i="${i}" aria-label="Quitar valor">✕</button></td></tr>`).join("");
+  const steps = F.steps.map((st, i) => { const rs = r.steps[i] || {}; return `<tr class="${rs.err ? "fx-bad" : ""}"><td class="n small muted">${i + 1}</td>
+    <td><input data-set="${base}.formula.steps.${i}.nombre" value="${esc(st.nombre)}" placeholder="Concepto"></td>
+    <td><input class="fxkey" data-set="${base}.formula.steps.${i}.key" value="${esc(st.key)}" placeholder="nombre"></td>
+    <td class="fx-eq">=</td><td class="fx-expr-td"><input class="fx-expr" data-fxi="${i}" data-set="${base}.formula.steps.${i}.expr" value="${esc(st.expr)}" spellcheck="false"><div class="fx-err small" data-fxe="${i}">${esc(rs.err || "")}</div></td>
+    <td><select data-set="${base}.formula.steps.${i}.fmt">${FX_FMT.map(([v, t]) => `<option value="${v}" ${(st.fmt || "clp") === v ? "selected" : ""}>${t}</option>`).join("")}</select></td>
+    <td class="n fx-val" data-fxv="${i}">${rs.err ? "—" : fxFmt(rs.val, st.fmt)}</td>
+    <td class="fx-btns"><button class="btn ghost small" data-act="fxMove" data-i="${i}" data-d="-1" ${i ? "" : "disabled"} aria-label="Subir">↑</button><button class="btn ghost small" data-act="fxMove" data-i="${i}" data-d="1" ${i < F.steps.length - 1 ? "" : "disabled"} aria-label="Bajar">↓</button><button class="btn ghost danger small" data-act="fxDelStep" data-i="${i}" aria-label="Quitar paso">✕</button></td></tr>`; }).join("");
+  const names = [...bi.map((b) => b.key), ...F.vars.map((v) => PB.normKey(v.key)).filter(Boolean), ...F.steps.map((x) => PB.normKey(x.key)).filter(Boolean)];
+  const errs = PB.fxCheck(F);
+  return `<section class="panel fx"><div class="row spread"><div><h2>Fórmula de precio</h2><p class="small muted" style="margin:0">Cada paso se calcula como una celda de Excel, de arriba hacia abajo. Puedes cambiar los valores, reescribir las operaciones, mover pasos o agregar nuevos.</p></div>
+    <label class="f" style="min-width:220px">Línea<select data-fxline>${d.lineOrder.map((x) => `<option value="${x}" ${x === k ? "selected" : ""}>${esc(d.lines[x].nombre)}</option>`).join("")}</select></label></div>
+    <div class="grid g2 fx-top">
+      <div><h3>Valores que usa la fórmula</h3>
+        <div class="scroll-x"><table class="ptable fx-vals"><thead><tr><th>Nombre</th><th>Concepto</th><th>Valor</th><th></th></tr></thead><tbody>
+        ${rowsProd}${rowsPerfil}${rowsLinea}${rowsVars}</tbody></table></div>
+        <div class="row">${banho && (L.perfiles || []).length > 1 ? `<label class="f" style="max-width:240px">Perfil de baño para probar<select data-fx="perfil">${L.perfiles.map((pk) => { const f = d.profiles.find((x) => x.key === pk); return f ? `<option value="${pk}" ${d.profiles[pi] && d.profiles[pi].key === pk ? "selected" : ""}>${esc(f.nombre)}</option>` : ""; }).join("")}</select></label>` : ""}
+        <label class="f" style="max-width:150px">N° de márgenes<select data-set="${base}.nmarg">${[1, 2].map((n) => `<option value="${n}" ${L.margenes.length === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        <label class="f" style="max-width:150px">Material (códigos)<select data-set="${base}.mat">${d.materials.map((m) => `<option value="${esc(m.code)}" ${L.mat === m.code ? "selected" : ""}>${esc(m.code)}</option>`).join("")}</select></label>
+        <button class="btn" data-act="fxAddVar" style="align-self:end">+ Agregar valor</button></div></div>
+      <div class="fx-help"><h3>Cómo escribir</h3><ul class="small">
+        <li>Usa los <b>nombres</b> (las etiquetas grises). Toca uno para insertarlo en la fórmula que estás editando.</li>
+        <li>Operaciones: <code>+</code> <code>-</code> <code>*</code> o <code>×</code> <code>/</code> o <code>÷</code> <code>^</code> y paréntesis. Ej.: <code>(camada + mo) * cotizacion</code>.</li>
+        <li>Porcentajes: <code>costo * aduana / 100</code> o <code>costo * aduana%</code>.</li>
+        <li>Funciones: <code>MIN(a; b)</code>, <code>MAX(a; b)</code>, <code>REDONDEAR(x; 0)</code>, <code>SI(peso > 2; a; b)</code>.</li>
+        <li>Un paso solo puede usar valores y pasos que estén <b>más arriba</b>.</li>
+        <li>Obligatorios: un paso <b>costo</b> y uno <b>precio</b> (el precio antes de redondear). Si existen, también se usan <b>mayorista</b>, <b>minorista</b>, <b>gasto_viaje</b>, <b>comision_mp</b> y <b>comision_shopify</b>.</li></ul>
+        <div class="fx-names">${names.map(chip).join(" ")}</div></div></div>
+    <h3>Pasos del cálculo <span class="small muted">· ejemplo con los valores de arriba</span></h3>
+    <div class="scroll-x"><table class="ptable fx-steps"><thead><tr><th></th><th>Concepto</th><th>Nombre</th><th></th><th>Fórmula</th><th>Se muestra en</th><th class="n">Resultado</th><th></th></tr></thead><tbody>${steps}
+      <tr class="tot"><td></td><td colspan="5">Precio sugerido (redondeo: ${esc({ 990: "subir a $X.990", 1000: "subir a miles", 100: "subir a centenas", none: "sin redondeo" }[d.rounding] || d.rounding)})</td><td class="n" data-fxv="final">${r.ok ? clp(r.sugerido) : "—"}</td><td></td></tr>
+      <tr><td></td><td colspan="5" class="small">Utilidad aprox. por unidad (sin IVA, después de viaje y comisiones)</td><td class="n small" data-fxv="util">${r.ok ? clp(r.utilidad) + (r.margenReal !== null ? " · " + Math.round(r.margenReal * 100) + "%" : "") : "—"}</td><td></td></tr></tbody></table></div>
+    <div class="fx-msgs" data-fxmsgs>${errs.length ? `<div class="note warn-t">${errs.map(esc).join("<br>")}</div>` : ""}</div>
+    <div class="row"><button class="btn" data-act="fxAddStep">+ Agregar paso</button><button class="btn ghost" data-act="fxReset">Volver a la fórmula original</button>
+      <span class="small muted">Los cambios se aplican al tocar <b>Guardar ajustes</b>. Las compras ya creadas guardan su propia fórmula: al guardar te pregunto si quieres actualizarlas.</span></div></section>`;
+}
+function fxRefresh() {
+  if (S.view !== "ajustes" || !S.draft) return;
+  const d = S.draft; const L = d.lines[S.fx.linea]; if (!L) return; const F = fxEnsure(d, S.fx.linea); const r = fxPreview();
+  F.steps.forEach((st, i) => { const rs = r.steps[i] || {}; const v = $(`[data-fxv="${i}"]`), e = $(`[data-fxe="${i}"]`); if (v) v.textContent = rs.err ? "—" : fxFmt(rs.val, st.fmt); if (e) e.textContent = rs.err || ""; const tr = v && v.closest("tr"); if (tr) tr.classList.toggle("fx-bad", !!rs.err); });
+  const f = $('[data-fxv="final"]'); if (f) f.textContent = r.ok ? clp(r.sugerido) : "—";
+  const u = $('[data-fxv="util"]'); if (u) u.textContent = r.ok ? clp(r.utilidad) + (r.margenReal !== null ? " · " + Math.round(r.margenReal * 100) + "%" : "") : "—";
+  const errs = PB.fxCheck(F); const m = $("[data-fxmsgs]"); if (m) m.innerHTML = errs.length ? `<div class="note warn-t">${errs.map(esc).join("<br>")}</div>` : "";
+}
+function fxAction(act, b) {
+  const d = S.draft; const k = S.fx.linea; const F = fxEnsure(d, k); const i = +b.dataset.i;
+  if (act === "fxAddStep") { let n = F.steps.length + 1; while (F.steps.some((x) => PB.normKey(x.key) === "paso" + n)) n++; const at = F.steps.findIndex((x) => PB.normKey(x.key) === "precio"); const st = { key: "paso" + n, nombre: "Nuevo paso", expr: "0", fmt: "clp" }; if (at >= 0) F.steps.splice(at, 0, st); else F.steps.push(st); }
+  else if (act === "fxDelStep") F.steps.splice(i, 1);
+  else if (act === "fxMove") { const j = i + Number(b.dataset.d); if (j >= 0 && j < F.steps.length) [F.steps[i], F.steps[j]] = [F.steps[j], F.steps[i]]; }
+  else if (act === "fxAddVar") { let n = F.vars.length + 1; while (F.vars.some((x) => PB.normKey(x.key) === "valor" + n)) n++; F.vars.push({ key: "valor" + n, nombre: "", valor: 0 }); }
+  else if (act === "fxDelVar") F.vars.splice(i, 1);
+  else if (act === "fxReset") { d.lines[k].formula = PB.defaultFormula(d.lines[k].costo, d.lines[k].margenes.length); }
+  else if (act === "fxIns") {
+    const el = S.fx.focus != null && $(`.fx-expr[data-fxi="${S.fx.focus}"]`); if (!el) { toast("Primero toca la fórmula donde quieres insertarlo"); return; }
+    const a = el.selectionStart ?? el.value.length, z = el.selectionEnd ?? a; const name = b.dataset.name; const pre = el.value.slice(0, a), post = el.value.slice(z);
+    const ins = (pre && !/[\s(*/+\-^×÷;]$/.test(pre) ? " " : "") + name + (post && !/^[\s)*/+\-^×÷;]/.test(post) ? " " : "");
+    el.value = pre + ins + post; el.focus(); const pos = a + ins.length; el.setSelectionRange(pos, pos); el.dispatchEvent(new Event("input", { bubbles: true })); return;
+  }
+  render();
+}
 async function saveAjustes() {
   const d = clone(S.draft); const codes = d.types.map((t) => t.code);
   if (codes.some((x) => !x) || new Set(codes).size !== codes.length) return toast("Cada tipo necesita un código único");
   if (!/\{NUM\}/.test(d.codeFormat)) return toast("El formato del código debe incluir {NUM}");
-  try { await saveConfig(d); await saveCounters(clone(S.draftCounters)); S.draft = null; toast("Ajustes guardados"); render(); } catch (e) { toast("No se pudieron guardar: " + err(e)); }
+  for (const k of d.lineOrder) {
+    const L = d.lines[k]; if (!L.formula) continue;
+    L.formula.steps.forEach((st) => { st.key = PB.normKey(st.key); st.expr = String(st.expr || "").trim(); }); (L.formula.vars || []).forEach((v) => { v.key = PB.normKey(v.key); v.valor = N(v.valor); });
+    const errs = PB.fxCheck(L.formula); if (errs.length) { S.fx.linea = k; render(); return toast(`Revisa la fórmula de ${L.nombre}: ${errs[0]}`, 7000); }
+  }
+  const fOf = (cfg, k) => { const L = cfg.lines[k]; return JSON.stringify(L.formula && L.formula.steps && L.formula.steps.length ? L.formula : PB.defaultFormula(L.costo, L.margenes.length)); };
+  const changed = d.lineOrder.filter((k) => S.cfg.lines[k] && fOf(d, k) !== fOf(S.cfg, k));
+  try { await saveConfig(d); await saveCounters(clone(S.draftCounters)); S.draft = null; toast("Ajustes guardados"); render(); } catch (e) { return toast("No se pudieron guardar: " + err(e)); }
+  const cs = Object.values(S.compras).filter((c) => changed.includes(c.linea));
+  if (cs.length && await confirmBox("Usar la fórmula nueva en las compras", `Cambiaste la fórmula de <b>${changed.map((k) => esc(d.lines[k].nombre)).join("</b> y <b>")}</b>. ¿La aplico también a ${cs.length === 1 ? "la compra ya creada" : "las " + cs.length + " compras ya creadas"} de esa línea? Cada compra mantiene sus propios valores de baño, tipo de cambio y márgenes; solo cambian los pasos y los valores que agregaste.`, "Aplicar a las compras")) {
+    for (const c of cs) { c.params.formula = clone(d.lines[c.linea].formula); saveC(c, 10); }
+    for (const k in defParams) delete defParams[k]; toast("Fórmula aplicada a " + cs.length + (cs.length === 1 ? " compra" : " compras")); render();
+  }
 }
 
 /* ---------- nueva compra / productos ---------- */
@@ -828,6 +917,7 @@ async function exportExcel(list, compra, btn) {
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-act]"); if (!b) return; e.preventDefault();
   const act = b.dataset.act; const c = S.compras[S.compraId];
+  if (act.startsWith("fx")) { fxAction(act, b); return; }
   if (act === "logout") { await S.sb.auth.signOut(); location.hash = ""; location.reload(); }
   else if (act === "go") { if (b.dataset.crit) { S.pf = { ...S.pf, stock: "critico", q: "" }; } go(b.dataset.h); }
   else if (act === "openCompra") go("compra-" + b.dataset.id);
@@ -857,6 +947,8 @@ document.addEventListener("click", async (e) => {
   else if (act === "addCtr") { const k = ($("#newCtr").value || "").trim().toUpperCase(); if (/^[A-Z0-9]+-[A-Z0-9]+$/.test(k)) { S.draftCounters[k] = S.draftCounters[k] || 0; render(); } else toast("Escribe tipo y material separados por guion, por ejemplo VE-ROP"); }
   else if (act === "exportAll") outputsModal(Object.values(S.productos), "Respaldo de todos los productos", null);
 });
+document.addEventListener("focusin", (e) => { const el = e.target; if (el.classList && el.classList.contains("fx-expr")) S.fx.focus = el.dataset.fxi; });
+document.addEventListener("mousedown", (e) => { if (e.target.closest(".fxname")) e.preventDefault(); });
 document.addEventListener("toggle", (e) => { const d = e.target; if (d.dataset && d.dataset.tg) S.open[d.dataset.tg] = d.open; }, true);
 document.addEventListener("input", (e) => {
   const el = e.target;
@@ -875,6 +967,8 @@ document.addEventListener("input", (e) => {
     if (path === "canalesText") { S.draft.canales = v.split(",").map((x) => x.trim()).filter(Boolean); return; }
     if (path.endsWith(".nmarg")) { const L = S.draft.lines[path.split(".")[1]]; L.margenes = +v === 2 ? [L.margenes[0], L.margenes[1] ?? 45] : [L.margenes[0]]; render(); return; }
     if (el.type === "number") v = v === "" ? "" : Number(v); if (/^(types|materials)\.\d+\.code$/.test(path)) v = String(v).toUpperCase(); setPath(S.draft, path, v);
+    fxRefresh();
+  } else if (el.dataset.fx !== undefined && el.dataset.fx) { S.fx[el.dataset.fx] = el.value; if (el.dataset.fx === "perfil") render(); else fxRefresh();
   } else if (el.dataset.ctr) S.draftCounters[el.dataset.ctr] = Number(el.value) || 0;
   else if (el.hasAttribute("data-cfilter")) { S.filter = el.value; const pos = el.selectionStart; render(); const f = $("[data-cfilter]"); if (f) { f.focus(); f.setSelectionRange(pos, pos); } }
 });
@@ -883,7 +977,12 @@ document.addEventListener("change", (e) => {
   if (el.dataset.cp && c) { let v = el.value; if (el.type === "number") v = N(v); setPath(c.params, el.dataset.cp, v); saveC(c, 100); render(); }
   else if (el.dataset.cf && c) { c[el.dataset.cf] = el.value; saveC(c, 100); }
   else if (el.dataset.if === "tipo") render();
-  else if (el.dataset.set && S.view === "ajustes" && el.tagName !== "TEXTAREA") render();
+  else if (el.hasAttribute("data-fxline")) { S.fx.linea = el.value; S.fx.perfil = ""; S.fx.focus = null; render(); }
+  else if (el.dataset.set && S.view === "ajustes" && el.tagName !== "TEXTAREA") {
+    if (/\.key$/.test(el.dataset.set)) { const k = PB.normKey(el.value); el.value = k; setPath(S.draft, el.dataset.set, k); }
+    if (el.closest(".fx") && el.tagName !== "SELECT") { fxRefresh(); return; }
+    render();
+  }
   else if (el.dataset.photo) { const p = S.productos[el.dataset.photo]; const fr = new FileReader(); fr.onload = async () => { try { p.img_url = await uploadPhoto(p.id, fr.result); saveP(p, 10); render(); } catch (x) { toast("No se pudo subir la foto: " + err(x)); } }; fr.readAsDataURL(el.files[0]); }
 });
 window.addEventListener("beforeunload", (e) => { if (S.dirtyP.size || S.dirtyC.size) { flushAll(); e.preventDefault(); e.returnValue = ""; } });
