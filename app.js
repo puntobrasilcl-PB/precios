@@ -272,6 +272,7 @@ function filteredProducts() {
   else if (f.estado === "sinfoto") list = list.filter((p) => !p.img_url);
   else if (f.estado === "difshop") list = list.filter((p) => p.shopify_precio != null && calcP(p).ok && Math.round(calcP(p).final) !== Math.round(N(p.shopify_precio)));
   else if (f.estado === "noshop") list = list.filter((p) => !p.shopify_variant && p.code);
+  else if (f.estado === "ajustado") list = list.filter((p) => hasManual(p));
   else if (f.estado === "enshop") list = list.filter((p) => !!p.shopify_variant);
   const by = { nombre: (a, b) => String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"), code: (a, b) => String(a.code || "~").localeCompare(String(b.code || "~")),
     precio: (a, b) => (calcP(b).final || 0) - (calcP(a).final || 0), stock: (a, b) => stockOf(a).disp - stockOf(b).disp,
@@ -290,6 +291,7 @@ function viewProductos() {
       <span class="pbody"><span class="pname">${esc(p.nombre || "Sin nombre")}</span>
       <span class="row tight">${p.code ? `<span class="chip code">${esc(p.code)}</span>` : `<span class="chip warn">Sin código</span>`}</span>
       <span class="row tight spread"><b class="pprice">${r.ok ? clp(r.final) : "—"}</b><span class="chip ${ss === "ok" ? "ok" : ss === "critico" ? "warn" : "bad"}">${st.disp} u.</span></span>
+      ${r.ok && hasManual(p) && Math.round(r.final) !== Math.round(r.sugerido) ? `<span class="small muted">ajustado · sugerido ${clp(r.sugerido)}</span>` : ""}
       ${dif ? `<span class="small warn-t">Shopify ${clp(N(p.shopify_precio))}</span>` : ""}</span></button>`;
   }).join("");
   return `<section class="row spread"><div><div class="eyebrow">Inventario</div><h1>Todos los <em>productos</em></h1></div>
@@ -302,7 +304,7 @@ function viewProductos() {
       ${sel("tipo", S.cfg.types.map((t) => [t.code, t.nombre]), "Tipo")}
       ${sel("prov", provs.map((x) => [x, x]), "Proveedor")}
       ${sel("stock", [["ok", "Disponible"], ["critico", "Stock crítico"], ["sin", "Sin stock"]], "Stock")}
-      ${sel("estado", [["sincodigo", "Sin código"], ["sinprecio", "Sin precio (faltan datos)"], ["sinfoto", "Sin foto"], ["difshop", "Precio distinto en Shopify"], ["noshop", "No está en Shopify"], ["enshop", "Está en Shopify"]], "Revisar")}
+      ${sel("estado", [["sincodigo", "Sin código"], ["sinprecio", "Sin precio (faltan datos)"], ["sinfoto", "Sin foto"], ["difshop", "Precio distinto en Shopify"], ["noshop", "No está en Shopify"], ["enshop", "Está en Shopify"], ["ajustado", "Precio ajustado a mano"]], "Revisar")}
       <label class="f">Ordenar<select data-pf="orden">${[["nombre", "Nombre"], ["code", "Código"], ["precio", "Precio (mayor a menor)"], ["stock", "Stock (menor a mayor)"], ["vendidos", "Más vendidos"], ["nuevos", "Más nuevos"]].map(([v, t]) => `<option value="${v}" ${f.orden === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
     </div></details>
     <div class="row spread small"><span><b>${list.length}</b> productos · ${unid} unidades · stock a costo ${clp(vCosto)} · a venta ${clp(vVenta)}</span>
@@ -321,7 +323,8 @@ function productModal(p) {
       <div class="pm-head"><label class="thumb big" title="Cambiar foto">${p.img_url ? `<img src="${esc(p.img_url)}" alt="">` : "Agregar foto"}<input type="file" accept="image/*" class="hidden" id="pmPhoto"></label>
       <div class="grid" style="gap:6px;min-width:0"><input class="name" data-pp="nombre" value="${esc(p.nombre)}" aria-label="Nombre">
       <div class="row tight">${p.code ? `<span class="chip code">${esc(p.code)}</span>` : `<span class="chip warn">Sin código</span>`}${p.ref ? `<span class="chip">Ref. ${esc(p.ref)}</span>` : ""}${p.shopify_url ? `<a class="chip ok" href="${esc(p.shopify_url)}" target="_blank" rel="noopener">Ver en la tienda</a>` : p.shopify_variant ? `<span class="chip ok">En Shopify</span>` : ""}</div>
-      <div class="pm-price">${r.ok ? clp(r.final) : "Sin precio"}</div><div class="small muted">${r.ok ? (r.manual ? "precio fijado a mano · sugerido " + clp(r.sugerido) : "precio sugerido") + (r.mayorista ? " · mayorista " + clp(r.mayorista) : "") + " · costo " + clp(r.costo) : "Falta: " + esc(r.falta.join(", "))}${p.shopify_precio != null ? ` · en Shopify ${clp(N(p.shopify_precio))}` : ""}</div></div></div>
+      <div class="pm-price">${r.ok ? clp(r.final) : hasManual(p) ? clp(N(p.precio_manual)) : "Sin precio"}</div><div class="small muted">precio de venta final${p.shopify_precio != null ? ` · en Shopify ${clp(N(p.shopify_precio))}` : ""}</div></div></div>
+      ${pricePanel(p, r, "modal")}
       <div class="kpis"><div class="kpi"><b>${st.disp}</b><span>disponibles</span></div><div class="kpi"><b>${st.vendidos}</b><span>vendidas${st.ultima ? " · última " + fdate(st.ultima) : ""}</span></div>${p.shopify_stock != null ? `<div class="kpi"><b>${p.shopify_stock}</b><span>stock en Shopify</span></div>` : ""}</div>
       <div class="row"><button class="btn gold" data-x="venta">Registrar venta</button><button class="btn" data-x="ajuste">Ajustar stock</button><button class="btn" data-x="reponer">Reponer</button></div>
       <div class="grid g3">
@@ -332,7 +335,6 @@ function productModal(p) {
         ${params.costo === "banho" ? `<label class="f">Peso g<input inputmode="decimal" data-pp="peso" value="${esc(p.peso)}"></label>` : ""}
         <label class="f">${params.costo === "banho" ? "Bruto R$" : params.costo === "brl" ? "Precio R$" : "Costo CLP"}<input inputmode="decimal" data-pp="bruto" value="${esc(p.bruto)}"></label>
         ${params.costo === "banho" && Object.keys(params.perfiles).length > 1 ? `<label class="f">Baño<select data-pp="perfil">${Object.entries(params.perfiles).map(([k, f]) => `<option value="${k}" ${(p.perfil || params.perfilDefault) === k ? "selected" : ""}>${esc(f.nombre)}</option>`).join("")}</select></label>` : ""}
-        <label class="f">Precio de venta fijo (vacío = sugerido)<input inputmode="numeric" data-pp="precio_manual" value="${esc(p.precio_manual)}"></label>
         <label class="f">Stock mínimo (vacío = ${esc(S.cfg.stockMin)})<input inputmode="numeric" data-pp="stock_min" value="${esc(p.stock_min)}"></label>
         <label class="f">Talla / color / variante<input data-pp="variante" value="${esc(p.variante)}"></label>
         <label class="f">Referencia proveedor<input data-pp="ref" value="${esc(p.ref)}"></label>
@@ -347,13 +349,15 @@ function productModal(p) {
       <button class="btn ghost small danger" data-x="del">Eliminar</button></span></div>`;
     };
     draw();
-    m.addEventListener("input", (e) => { const el = e.target; if (!el.dataset.pp) return; p[el.dataset.pp] = el.value; saveP(p); if (["qty", "peso", "bruto", "perfil", "precio_manual"].includes(el.dataset.pp)) { const r = calcP(p); $(".pm-price", m).textContent = r.ok ? clp(r.final) : "Sin precio"; } });
+    const refreshP = () => { const r = calcP(p); $(".pm-price", m).textContent = r.ok ? clp(r.final) : hasManual(p) ? clp(N(p.precio_manual)) : "Sin precio"; const i = $("[data-ppinfo]", m), st = $("[data-ppstate]", m); if (i) i.innerHTML = ppInfo(p, r); if (st) st.innerHTML = ppState(p, r); };
+    m.addEventListener("input", (e) => { const el = e.target; if (!el.dataset.pp) return; if (el.dataset.pp === "precio_manual") { p.precio_manual = parseCLP(el.value); saveP(p); refreshP(); return; } p[el.dataset.pp] = el.value; saveP(p); if (["qty", "peso", "bruto", "perfil"].includes(el.dataset.pp)) refreshP(); });
     m.addEventListener("change", (e) => { const el = e.target; if (el.dataset.pp && el.tagName === "SELECT") { p[el.dataset.pp] = el.value; saveP(p, 50); draw(); } if (el.id === "pmPhoto" && el.files[0]) { const fr = new FileReader(); fr.onload = async () => { try { p.img_url = await uploadPhoto(p.id, fr.result); saveP(p, 10); draw(); } catch (x) { toast("No se pudo subir la foto: " + err(x)); } }; fr.readAsDataURL(el.files[0]); } });
     m.addEventListener("toggle", (e) => { if (e.target.id === "pmDesc") S.open.desc = e.target.open; }, true);
     m.addEventListener("click", async (e) => {
       const dm = e.target.closest("[data-delmov]"); if (dm) { if (await confirmBox("Borrar movimiento", "El stock se recalcula sin este movimiento.", "Borrar", true)) { const { error } = await S.sb.from("movimientos").delete().eq("id", dm.dataset.delmov); if (error) toast(error.message); else { S.movs = S.movs.filter((x) => x.id !== dm.dataset.delmov); rebuildStock(); draw(); } } return; }
       const b = e.target.closest("[data-x]"); if (!b) return; const x = b.dataset.x;
       if (x === "close") { await flushP(p.id); close(); render(); }
+      else if (x === "pfx") { applyPfx(p, b.dataset.v); draw(); }
       else if (x === "venta" || x === "ajuste" || x === "reponer") movModal(p, x, draw);
       else if (x === "gendesc") { p.descripcion = genDescripcion(p); saveP(p, 50); S.open.desc = true; draw(); }
       else if (x === "copydesc") copy(p.descripcion || genDescripcion(p));
@@ -461,19 +465,43 @@ function itemCard(c, p, prev) {
         <label class="f">${params.costo === "banho" ? "Bruto R$" : params.costo === "brl" ? "Precio R$" : "Costo CLP"}<input inputmode="decimal" data-if="bruto" value="${esc(p.bruto)}"></label>
         ${params.costo === "banho" && Object.keys(params.perfiles).length > 1 ? `<label class="f">Baño<select data-if="perfil">${Object.entries(params.perfiles).map(([k, f]) => `<option value="${k}" ${(p.perfil || params.perfilDefault) === k ? "selected" : ""}>${esc(f.nombre)}</option>`).join("")}</select></label>` : ""}
       </div></div>
-    <div class="pricebox" data-pricebox>${priceBox(r)}</div>
+    <div class="pricebox" data-pricebox>${priceBox(r, p)}</div>
     <div class="detail ${open ? "" : "hidden"}">${open ? itemDetail(c, p, r) : ""}</div>
     <div style="grid-column:1/-1" class="row spread"><button class="btn ghost small" data-act="toggleItem" data-id="${esc(p.id)}">${open ? "Ocultar detalle ▴" : "Ver cálculo y más ▾"}</button></div></article>`;
 }
-function priceBox(r) {
+/* ---------- precio de venta final (manual) ---------- */
+const parseCLP = (v) => { const d = String(v ?? "").replace(/[^\d]/g, ""); return d ? Number(d) : null; };
+const hasManual = (p) => N(p.precio_manual) > 0;
+function ppInfo(p, r) {
+  if (!r.ok) return `<div class="pp-t"><span>Falta</span><b class="warn-t">${esc(r.falta.join(", "))}</b></div>`;
+  return `<div class="pp-t"><span>Costo</span><b>${clp(r.costo)}</b></div>${r.mayorista ? `<div class="pp-t"><span>Mayorista</span><b>${clp(r.mayorista)}</b></div>` : ""}<div class="pp-t"><span>Sugerido</span><b>${clp(r.sugerido)}</b></div><div class="pp-t"><span>Ganancia aprox.</span><b>${clp(r.utilidad)}${r.margenReal !== null ? ` <small>${Math.round(r.margenReal * 100)}%</small>` : ""}</b></div>`;
+}
+function ppState(p, r) {
+  if (!hasManual(p)) return `<span class="muted">Vacío = se vende al sugerido${r.ok ? " (" + clp(r.sugerido) + ")" : ""}</span>`;
+  const d = r.ok ? N(p.precio_manual) - r.sugerido : 0;
+  return `<span class="chip ${d < 0 ? "warn" : "ok"}">Ajustado a mano</span>${r.ok && d ? ` <span class="small">${d > 0 ? "+" : "−"}${clp(Math.abs(d))} vs sugerido</span>` : ""}`;
+}
+function pricePanel(p, r, mode) {
+  const attr = mode === "modal" ? 'data-pp="precio_manual"' : 'data-if="precio_manual"'; const act = mode === "modal" ? "data-x" : "data-act";
+  return `<div class="pp pp-${mode}"><div class="pp-tiles" data-ppinfo>${ppInfo(p, r)}</div>
+    <div class="pp-final"><label class="pp-lab">Venta final<input class="pp-in" inputmode="numeric" autocomplete="off" ${attr} value="${hasManual(p) ? esc(Math.round(N(p.precio_manual)).toLocaleString("es-CL")) : ""}" placeholder="${r.ok ? esc(r.sugerido) : "Escribe el precio"}"></label>
+      <div class="pp-btns"><button class="btn ghost small" ${act}="pfx" data-id="${esc(p.id)}" data-v="-1000" aria-label="Bajar 1.000">−1.000</button><button class="btn ghost small" ${act}="pfx" data-id="${esc(p.id)}" data-v="1000" aria-label="Subir 1.000">+1.000</button>${hasManual(p) ? `<button class="btn ghost small" ${act}="pfx" data-id="${esc(p.id)}" data-v="reset">Usar sugerido</button>` : ""}</div>
+      <div class="pp-state small" data-ppstate>${ppState(p, r)}</div></div></div>`;
+}
+function applyPfx(p, v) {
+  const r = calcP(p); const base = hasManual(p) ? N(p.precio_manual) : r.ok ? r.sugerido : 0;
+  p.precio_manual = v === "reset" ? null : Math.max(0, Math.round(base + Number(v))) || null; saveP(p, 150);
+}
+function priceBox(r, p) {
+  if (p) return `<span class="price" data-ppfinal>${r.ok ? clp(r.final) : hasManual(p) ? clp(N(p.precio_manual)) : "—"}</span><span class="sub">precio de venta final</span>${pricePanel(p, r, "item")}`;
+
   if (!r.ok) return `<span class="chip warn">Falta: ${esc(r.falta.join(", "))}</span>`;
   return `<span class="price">${clp(r.final)}</span><span class="sub">${r.manual ? "precio manual · sugerido " + clp(r.sugerido) : "precio de venta"}</span>${r.mayorista ? `<span class="sub">Mayorista ${clp(r.mayorista)}</span>` : ""}<span class="sub">Costo ${clp(r.costo)}</span>`;
 }
 function itemDetail(c, p, r) {
   const params = c.params; const rows = (r.steps || []).map((st) => [esc(st.nombre) + ` <span class="small muted">= ${esc(st.expr)}</span>`, st.err ? `<span class="warn-t">${esc(st.err)}</span>` : (st.key === "costo" ? "<b>" + fxFmt(st.val, st.fmt) + "</b>" : fxFmt(st.val, st.fmt))]);
   return `${rows.length ? `<table class="bd">${rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`).join("")}${r.ok ? `<tr class="tot"><td>Precio sugerido (redondeado)</td><td class="n">${clp(r.sugerido)}</td></tr><tr><td>Utilidad aprox. por unidad (sin IVA, después de viaje y comisiones)</td><td class="n">${clp(r.utilidad)} · ${r.margenReal !== null ? Math.round(r.margenReal * 100) + "%" : ""}</td></tr>` : ""}</table>` : ""}
-    <div class="grid g3"><label class="f">Precio manual (vacío = sugerido)<input inputmode="numeric" data-if="precio_manual" value="${esc(p.precio_manual)}"></label>
-      <label class="f">Referencia proveedor<input data-if="ref" value="${esc(p.ref)}"></label><label class="f">Talla / color / variante<input data-if="variante" value="${esc(p.variante)}"></label></div>
+    <div class="grid g3"><label class="f">Referencia proveedor<input data-if="ref" value="${esc(p.ref)}"></label><label class="f">Talla / color / variante<input data-if="variante" value="${esc(p.variante)}"></label></div>
     ${p.desc_original ? `<div class="small muted">Descripción original: ${esc(p.desc_original)}</div>` : ""}
     <label class="f">Nota<input data-if="nota" value="${esc(p.nota)}" placeholder="Algo a revisar"></label>
     <div class="row"><button class="btn ghost small" data-act="openP" data-id="${esc(p.id)}">Abrir ficha completa</button><button class="btn ghost small" data-act="dupItem" data-id="${esc(p.id)}">Duplicar</button><button class="btn ghost danger small" data-act="delItem" data-id="${esc(p.id)}">Eliminar</button></div>`;
@@ -918,6 +946,7 @@ document.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-act]"); if (!b) return; e.preventDefault();
   const act = b.dataset.act; const c = S.compras[S.compraId];
   if (act.startsWith("fx")) { fxAction(act, b); return; }
+  if (act === "pfx") { const p = S.productos[b.dataset.id]; if (!p) return; applyPfx(p, b.dataset.v); const card = b.closest("[data-item]"); if (card) $("[data-pricebox]", card).innerHTML = priceBox(calcP(p), p); else render(); return; }
   if (act === "logout") { await S.sb.auth.signOut(); location.hash = ""; location.reload(); }
   else if (act === "go") { if (b.dataset.crit) { S.pf = { ...S.pf, stock: "critico", q: "" }; } go(b.dataset.h); }
   else if (act === "openCompra") go("compra-" + b.dataset.id);
@@ -955,8 +984,10 @@ document.addEventListener("input", (e) => {
   if (el.dataset.pf) { S.pf[el.dataset.pf] = el.value; S.pf.limit = 120; if (el.dataset.pf === "q") { const pos = el.selectionStart; render(); const f = $('[data-pf="q"]'); if (f) { f.focus(); f.setSelectionRange(pos, pos); } } else render(); }
   else if (el.dataset.vf) { S.vf[el.dataset.vf] = el.value; render(); }
   else if (el.dataset.if) {
-    const card = el.closest("[data-item]"); const p = S.productos[card.dataset.item]; p[el.dataset.if] = el.value;
-    if (["qty", "peso", "bruto", "perfil", "precio_manual"].includes(el.dataset.if)) { const r = calcP(p); $("[data-pricebox]", card).innerHTML = priceBox(r); card.classList.toggle("incomplete", !r.ok); }
+    const card = el.closest("[data-item]"); const p = S.productos[card.dataset.item];
+    if (el.dataset.if === "precio_manual") { p.precio_manual = parseCLP(el.value); const r = calcP(p); $("[data-ppinfo]", card).innerHTML = ppInfo(p, r); $("[data-ppstate]", card).innerHTML = ppState(p, r); $("[data-ppfinal]", card).textContent = r.ok ? clp(r.final) : "—"; saveP(p); return; }
+    p[el.dataset.if] = el.value;
+    if (["qty", "peso", "bruto", "perfil"].includes(el.dataset.if)) { const r = calcP(p); $("[data-pricebox]", card).innerHTML = priceBox(r, p); card.classList.toggle("incomplete", !r.ok); }
     saveP(p);
   } else if (el.dataset.calc) {
     S.calc[el.dataset.calc] = el.value; if (el.dataset.calc === "linea") { S.calc.perfil = ""; render(); return; }
